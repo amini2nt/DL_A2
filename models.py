@@ -652,6 +652,7 @@ class MultiHeadedAttention(nn.Module):
         self.Q_list = []
         self.V_list = []
         self.K_list = []
+        self.dropout = nn.Dropout(dropout)
 
 
         for i in range(n_heads):
@@ -702,24 +703,37 @@ class MultiHeadedAttention(nn.Module):
         # generating the "attention values" (i.e. A_i in the .tex)
         # Also apply dropout to the attention values.
 
+        mask = mask.float()
         h_list = []
         for i in range(self.n_heads):
             new_query = self.Q_list[i](query)
             new_key = self.K_list[i](key)
             new_value = self.V_list[i](value)
 
-            flat_query = new_query.view(new_query.shape[0] * new_query.shape[1], new_query.shape[2])
-            flat_key = new_key.view(new_key.shape[0] * new_key.shape[1], new_key.shape[2])
-            attention = torch.bmm(flat_query.unsqueeze(2), flat_key.unsqueeze(1))
-            attention /= self.sq_d_k
-            attention = attention.view(new_query.shape[0], new_query.shape[1], new_query.shape[2], new_query.shape[2])
-            import ipdb
-            ipdb.set_trace()
-            attention = torch.softmax(attention, dim=3)
+            
+            attention = torch.bmm(new_query, new_key.transpose(1, 2))/np.sqrt(self.d_k)
 
-            new_attention = attention.view(attention.shape[0] * attention.shape[1], attention.shape[2], attention.shape[3])
-            new_value2 = new_value.view(new_value.shape[0] * new_value.shape[1], new_value.shape[2]).unsqueeze(2)
-            h_i = torch.bmm(new_attention, new_value2).squeeze(2).view(new_query.shape[0], new_query.shape[1], -1)
+            #flat_query = new_query.view(new_query.shape[0] * new_query.shape[1], new_query.shape[2])
+            #flat_key = new_key.view(new_key.shape[0] * new_key.shape[1], new_key.shape[2])
+            #attention = torch.bmm(flat_query.unsqueeze(2), flat_key.unsqueeze(1)) 
+            #transpose(1, 2)
+            #attention /= self.sq_d_k
+            #attention = attention.view(new_query.shape[0], new_query.shape[1], new_query.shape[2], new_query.shape[2])
+            
+            
+
+            attention = attention*mask - 1e9*(1 - mask)
+
+            attention = torch.softmax(attention, dim=-1)
+            attention = self.dropout(attention)
+
+            #new_attention = attention.view(attention.shape[0] * attention.shape[1], attention.shape[2], attention.shape[3])
+            #new_value2 = new_value.view(new_value.shape[0] * new_value.shape[1], new_value.shape[2]).unsqueeze(2)
+            h_i = torch.bmm(attention, new_value)
+            #import ipdb
+            #ipdb.set_trace()
+            
+            #h_i = torch.bmm(new_attention, new_value2).squeeze(2).view(new_query.shape[0], new_query.shape[1], -1)
             h_list.append(h_i)#
 
 
