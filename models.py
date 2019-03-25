@@ -472,9 +472,8 @@ class MultiHeadedAttention(nn.Module):
             torch.nn.init.uniform_(self.K_list[i].bias.data, a=-k, b=k)
             torch.nn.init.uniform_(self.V_list[i].weight.data, a=-k, b=k)
             torch.nn.init.uniform_(self.V_list[i].bias.data, a=-k, b=k)
-            
 
-        
+
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
         # query, key, and value correspond to Q, K, and V in the latex, and 
@@ -491,34 +490,14 @@ class MultiHeadedAttention(nn.Module):
             new_key = self.K_list[i](key)
             new_value = self.V_list[i](value)
 
-            
             attention = torch.bmm(new_query, new_key.transpose(1, 2))/np.sqrt(self.d_k)
-
-            #flat_query = new_query.view(new_query.shape[0] * new_query.shape[1], new_query.shape[2])
-            #flat_key = new_key.view(new_key.shape[0] * new_key.shape[1], new_key.shape[2])
-            #attention = torch.bmm(flat_query.unsqueeze(2), flat_key.unsqueeze(1)) 
-            #transpose(1, 2)
-            #attention /= self.sq_d_k
-            #attention = attention.view(new_query.shape[0], new_query.shape[1], new_query.shape[2], new_query.shape[2])
-            
-            
-
             attention = attention*mask - 1e9*(1 - mask)
 
             attention = torch.softmax(attention, dim=-1)
             attention = self.dropout(attention)
 
-            #new_attention = attention.view(attention.shape[0] * attention.shape[1], attention.shape[2], attention.shape[3])
-            #new_value2 = new_value.view(new_value.shape[0] * new_value.shape[1], new_value.shape[2]).unsqueeze(2)
             h_i = torch.bmm(attention, new_value)
-            #import ipdb
-            #ipdb.set_trace()
-            
-            #h_i = torch.bmm(new_attention, new_value2).squeeze(2).view(new_query.shape[0], new_query.shape[1], -1)
-            h_list.append(h_i)#
-
-
-
+            h_list.append(h_i)
 
         h = torch.cat(h_list, dim=2)
         final_attention = self.output_layer(h)
