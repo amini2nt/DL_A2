@@ -199,7 +199,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
             new_hidden.append(h_t)
 
         prev_hidden = new_hidden
-
+        x_t = self.dropout_list[-1](x_t)
         output = self.layer_list[-1](x_t)
         output_list.append(output)
 
@@ -256,34 +256,32 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
 
-    self.r_list = []
-    self.z_list = []
-    self.hp_list = []
+    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+
+
+    self.r_list = nn.ModuleList()
+    self.z_list = nn.ModuleList()
+    self.hp_list = nn.ModuleList()
 
     self.layer_sizes = []
-    self.dropout_list = []
+    self.dropout_list = nn.ModuleList()
     self.layer_sizes.append(self.emb_size)
     for i in range(self.num_layers):
         self.layer_sizes.append(self.hidden_size)
     self.layer_sizes.append(self.vocab_size)
+
 
     for i in range(len(self.layer_sizes)-2):
         self.r_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
         self.z_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
         self.hp_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
 
+
     self.output_layer =  nn.Linear(self.layer_sizes[-2], self.layer_sizes[-1])
 
     for i in range(num_layers): 
         self.dropout_list.append(nn.Dropout(1-self.dp_keep_prob))
     
-    self.list_of_r_modules = nn.ModuleList(self.r_list)
-    self.list_of_z_modules = nn.ModuleList(self.z_list)
-    self.list_of_hp_modules = nn.ModuleList(self.hp_list)
-    
-
-    self.list_of_layer_dropouts = nn.ModuleList(self.dropout_list)
-    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
     self.input_dropout = nn.Dropout(1-self.dp_keep_prob)
     self.init_weights()
     if torch.cuda.is_available():
@@ -293,22 +291,18 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
   def init_weights(self):
     # TODO ========================
-    embedding_weights = np.random.uniform(low=-0.1, high=0.1, size=(self.vocab_size, self.emb_size))
-    self.embedding.weight.data.copy_(torch.from_numpy(embedding_weights))
-
-    torch.nn.init.zeros_(self.output_layer.bias)
-    torch.nn.init.uniform_(self.output_layer.weight, a=-0.1, b=0.1)
-
-
+    torch.nn.init.uniform_(self.embedding.weight.data, a=-0.1, b=0.1)
+    torch.nn.init.uniform_(self.output_layer.weight.data, a=-0.1, b=0.1)
+    torch.nn.init.zeros_(self.output_layer.bias.data)
     rng = np.sqrt(1.0/self.hidden_size)
-    for i in range(len(self.r_list) -1 ):
-        torch.nn.init.uniform_(self.r_list[i].bias, a=-rng, b=rng)
-        torch.nn.init.uniform_(self.r_list[i].weight, a=-rng, b=rng)
-        torch.nn.init.uniform_(self.z_list[i].bias, a=-rng, b=rng)
-        torch.nn.init.uniform_(self.z_list[i].weight, a=-rng, b=rng)
-        torch.nn.init.uniform_(self.hp_list[i].bias, a=-rng, b=rng)
-        torch.nn.init.uniform_(self.hp_list[i].weight, a=-rng, b=rng)
-
+    for i in range(len(self.r_list)):
+        torch.nn.init.uniform_(self.r_list[i].weight.data, a=-rng, b=rng)
+        torch.nn.init.uniform_(self.r_list[i].bias.data, a=-rng, b=rng)
+        torch.nn.init.uniform_(self.z_list[i].weight.data, a=-rng, b=rng)
+        torch.nn.init.uniform_(self.z_list[i].bias.data, a=-rng, b=rng)
+        torch.nn.init.uniform_(self.hp_list[i].weight.data, a=-rng, b=rng)
+        torch.nn.init.uniform_(self.hp_list[i].bias.data, a=-rng, b=rng)
+        
     return
     
   def init_hidden(self):
@@ -333,16 +327,18 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
             r_t = torch.sigmoid(self.r_list[i](concatenated_input))
             z_t = torch.sigmoid(self.z_list[i](concatenated_input))
             
-            new_h_tm1 = r_t * hidden[i]
+            new_h_tm1 = r_t * prev_hidden[i]
             concatenated_h_input = torch.cat([x_t, new_h_tm1], dim=1)
 
             hp_t = torch.tanh(self.hp_list[i](concatenated_h_input))
 
-            h_t = (1-z_t) * (hidden[i]) + (z_t * hp_t)
+            h_t = (1-z_t) * (prev_hidden[i]) + (z_t * hp_t)
 
             x_t = h_t
             new_hidden.append(h_t)
-        prev_hidden = new_hidden    
+        prev_hidden = new_hidden   
+        x_t = self.dropout_list[-1](x_t)
+ 
         output = self.output_layer(x_t)
         output_list.append(output)
 
@@ -352,6 +348,7 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
   def generate(self, input, hidden, generated_seq_len):
     # TODO ========================
     return samples
+
 
 
 
@@ -464,18 +461,18 @@ class MultiHeadedAttention(nn.Module):
 
     def init_weights(self):
         k = np.sqrt(1./self.n_units)
-        torch.nn.init.uniform_(self.output_layer.bias, a=-k, b=k)
-        torch.nn.init.uniform_(self.output_layer.weight,a=-k, b=k)
+        torch.nn.init.uniform_(self.output_layer.weight.data,a=-k, b=k)
+        torch.nn.init.uniform_(self.output_layer.bias.data, a=-k, b=k)
 
 
         for i in range(len(self.Q_list)):
-            torch.nn.init.uniform_(self.Q_list[i].bias, a=-k, b=k)
-            torch.nn.init.uniform_(self.Q_list[i].weight, a=-k, b=k)
-            torch.nn.init.uniform_(self.V_list[i].bias, a=-k, b=k)
-            torch.nn.init.uniform_(self.V_list[i].weight, a=-k, b=k)
-            torch.nn.init.uniform_(self.K_list[i].bias, a=-k, b=k)
-            torch.nn.init.uniform_(self.K_list[i].weight, a=-k, b=k)
-
+            torch.nn.init.uniform_(self.Q_list[i].weight.data, a=-k, b=k)
+            torch.nn.init.uniform_(self.Q_list[i].bias.data, a=-k, b=k)
+            torch.nn.init.uniform_(self.K_list[i].weight.data, a=-k, b=k)
+            torch.nn.init.uniform_(self.K_list[i].bias.data, a=-k, b=k)
+            torch.nn.init.uniform_(self.V_list[i].weight.data, a=-k, b=k)
+            torch.nn.init.uniform_(self.V_list[i].bias.data, a=-k, b=k)
+            
 
         
     def forward(self, query, key, value, mask=None):
@@ -530,7 +527,6 @@ class MultiHeadedAttention(nn.Module):
 
 
 
-model = MultiHeadedAttention(10,100)
 
 
 #----------------------------------------------------------------------------------
