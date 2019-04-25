@@ -1,4 +1,4 @@
-import torch
+import torch 
 import torch.nn as nn
 
 import numpy as np
@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import math, copy, time
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
+from torch.distributions.categorical import Categorical
 
 # NOTE ==============================================
 #
@@ -32,7 +33,8 @@ import matplotlib.pyplot as plt
 def clones(module, N):
     '''
     A helper function for producing N identical layers (each with their own parameters).
-    inputs:
+    
+    inputs: 
         module: a pytorch nn.module
         N (int): the number of copies of that module to return
 
@@ -50,9 +52,9 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     hidden_size:  The number of hidden units per layer
     seq_len:      The length of the input sequences
     vocab_size:   The number of tokens in the vocabulary (10,000 for Penn TreeBank)
-    num_layers:   The depth of the stack (i.e. the number of hidden layers at
+    num_layers:   The depth of the stack (i.e. the number of hidden layers at 
                   each time-step)
-    dp_keep_prob: The probability of *not* dropping out units in the
+    dp_keep_prob: The probability of *not* dropping out units in the 
                   non-recurrent connections.
                   Do not apply dropout on recurrent connections.
     """
@@ -79,7 +81,10 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     self.vocab_size = vocab_size
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
+
     self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+
+
     self.layer_list = []
     self.layer_sizes = []
     self.dropout_list = []
@@ -99,7 +104,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     self.input_dropout = nn.Dropout(1-self.dp_keep_prob)
     self.init_weights()
     if torch.cuda.is_available():
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda") 
     else:
         self.device = torch.device("cpu")
 
@@ -109,24 +114,32 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     # and output biases to 0 (in place). The embeddings should not use a bias vector.
     # Initialize all other (i.e. recurrent and linear) weights AND biases uniformly 
     # in the range [-k, k] where k is the square root of 1/hidden_size
+
+
     torch.nn.init.uniform_(self.embedding.weight.data, a=-0.1, b=0.1)
+
     torch.nn.init.zeros_(self.layer_list[-1].bias)
     torch.nn.init.uniform_(self.layer_list[-1].weight, a=-0.1, b=0.1)
+
 
     rng = np.sqrt(1.0/self.hidden_size)
     for i in range(len(self.layer_list) -1 ):
         torch.nn.init.uniform_(self.layer_list[i].bias, a=-rng, b=rng)
         torch.nn.init.uniform_(self.layer_list[i].weight, a=-rng, b=rng)
 
+    return
+
+
   def init_hidden(self):
     # TODO ========================
     # initialize the hidden states to zero
     """
     This is used for the first mini-batch in an epoch, only.
+    
     return # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
     """
     return torch.zeros(self.num_layers, self.batch_size, self.hidden_size, device=self.device)
-
+    
   def forward(self, inputs, hidden):
     # TODO ========================
     # Compute the forward pass, using nested python for loops.
@@ -168,17 +181,22 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     prev_hidden = hidden
     for t in range(self.seq_len):
         input_t = inputs[t]
+
         new_hidden = []
+
         x_t = self.embedding(input_t)
         x_t = self.input_dropout(x_t)
 
         for i in range(self.num_layers):
             if i > 0:
                 x_t = self.dropout_list[i-1](x_t)
+
             concatenated_input = torch.cat([x_t, prev_hidden[i]], dim=1)
             h_t = self.layer_list[i](concatenated_input)
             h_t = torch.tanh(h_t)
+            
             x_t = h_t
+            
             new_hidden.append(h_t)
 
         prev_hidden = new_hidden
@@ -213,6 +231,50 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         - Sampled sequences of tokens
                     shape: (generated_seq_len, batch_size)
     """
+   
+    # Input to hidden layer - embedding of input
+
+    input = input.long()
+    samples = input.view(1, -1)         # (1, batch_size)
+
+    # Input to hidden layer - embedding of input
+    emb_input = self.embedding(samples)    # (1, batch_size, emb_size)
+
+    # For each time step
+    for t in range(generated_seq_len):
+
+        # Next hidden layer
+        new_hidden = []
+
+        # Input at this time step for each layer
+        x_t = emb_input[0]      # (batch_size, emb_size)
+        prev_hidden = hidden
+
+        for i in range(self.num_layers):
+
+
+            concatenated_input = torch.cat([x_t, prev_hidden[i]], dim=1)
+            h_t = self.layer_list[i](concatenated_input)
+            h_t = torch.tanh(h_t)
+            
+            x_t = h_t
+            
+            new_hidden.append(h_t)
+
+        prev_hidden = new_hidden
+        
+        output = self.layer_list[-1](x_t)
+
+        probs = F.softmax(output, dim=1)    # (batch_size, vocab_size)
+        token_out = Categorical(probs=probs).sample()   # (batch_size)
+        token_out = token_out.view(1, -1)               # (1, batch_size)
+
+        # Append output to samples
+        samples = torch.cat((samples, token_out), dim=0)
+
+        # Make input to next time step
+        x_t = self.embedding(token_out)   # (1, batch_size, emb_size)
+
     return samples
 
 
@@ -226,6 +288,10 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
   """
   def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
     super(GRU, self).__init__()
+
+    # TODO ========================
+
+
     self.emb_size = emb_size
     self.hidden_size = hidden_size
     self.seq_len = seq_len
@@ -233,10 +299,14 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
     self.vocab_size = vocab_size
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
+
     self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+
+
     self.r_list = nn.ModuleList()
     self.z_list = nn.ModuleList()
     self.hp_list = nn.ModuleList()
+
     self.layer_sizes = []
     self.dropout_list = nn.ModuleList()
     self.layer_sizes.append(self.emb_size)
@@ -244,24 +314,27 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
         self.layer_sizes.append(self.hidden_size)
     self.layer_sizes.append(self.vocab_size)
 
+
     for i in range(len(self.layer_sizes)-2):
         self.r_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
         self.z_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
         self.hp_list.append(nn.Linear(self.layer_sizes[i]+self.hidden_size, self.layer_sizes[i+1]))
 
+
     self.output_layer =  nn.Linear(self.layer_sizes[-2], self.layer_sizes[-1])
 
-    for i in range(num_layers):
+    for i in range(num_layers): 
         self.dropout_list.append(nn.Dropout(1-self.dp_keep_prob))
-
+    
     self.input_dropout = nn.Dropout(1-self.dp_keep_prob)
     self.init_weights()
     if torch.cuda.is_available():
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda") 
     else:
         self.device = torch.device("cpu")
 
   def init_weights(self):
+    # TODO ========================
     torch.nn.init.uniform_(self.embedding.weight.data, a=-0.1, b=0.1)
     torch.nn.init.uniform_(self.output_layer.weight.data, a=-0.1, b=0.1)
     torch.nn.init.zeros_(self.output_layer.bias.data)
@@ -273,11 +346,16 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
         torch.nn.init.uniform_(self.z_list[i].bias.data, a=-rng, b=rng)
         torch.nn.init.uniform_(self.hp_list[i].weight.data, a=-rng, b=rng)
         torch.nn.init.uniform_(self.hp_list[i].bias.data, a=-rng, b=rng)
-
+        
+    return
+    
   def init_hidden(self):
+    # TODO ========================
     return torch.zeros(self.num_layers, self.batch_size, self.hidden_size, device=self.device)
 
   def forward(self, inputs, hidden):
+    # TODO ========================
+
     output_list = []
     prev_hidden = hidden
     for t in range(self.seq_len):
@@ -292,7 +370,7 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
             r_t = torch.sigmoid(self.r_list[i](concatenated_input))
             z_t = torch.sigmoid(self.z_list[i](concatenated_input))
-
+            
             new_h_tm1 = r_t * prev_hidden[i]
             concatenated_h_input = torch.cat([x_t, new_h_tm1], dim=1)
 
@@ -302,9 +380,9 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
             x_t = h_t
             new_hidden.append(h_t)
-        prev_hidden = new_hidden
+        prev_hidden = new_hidden   
         x_t = self.dropout_list[-1](x_t)
-
+ 
         output = self.output_layer(x_t)
         output_list.append(output)
 
@@ -312,7 +390,61 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
 
   def generate(self, input, hidden, generated_seq_len):
+    # TODO ========================
+    # Input to hidden layer - embedding of input
+
+
+    input = input.long()
+    samples = input.view(1, -1)         # (1, batch_size)
+
+    # Input to hidden layer - embedding of input
+    emb_input = self.embedding(samples)    # (1, batch_size, emb_size)
+
+    # For each time step
+    for t in range(generated_seq_len):
+
+        # Next hidden layer
+        new_hidden = []
+
+        # Input at this time step for each layer
+        x_t = emb_input[0]      # (batch_size, emb_size)
+        prev_hidden = hidden
+
+        for i in range(self.num_layers):
+
+
+            concatenated_input = torch.cat([x_t, prev_hidden[i]], dim=1)
+
+            r_t = torch.sigmoid(self.r_list[i](concatenated_input))
+            z_t = torch.sigmoid(self.z_list[i](concatenated_input))
+            
+            new_h_tm1 = r_t * prev_hidden[i]
+            concatenated_h_input = torch.cat([x_t, new_h_tm1], dim=1)
+
+            hp_t = torch.tanh(self.hp_list[i](concatenated_h_input))
+
+            h_t = (1-z_t) * (prev_hidden[i]) + (z_t * hp_t)
+
+            x_t = h_t
+            new_hidden.append(h_t)
+
+        prev_hidden = new_hidden
+        
+        output = self.output_layer(x_t)
+
+        probs = F.softmax(output, dim=1)    # (batch_size, vocab_size)
+        token_out = Categorical(probs=probs).sample()   # (batch_size)
+        token_out = token_out.view(1, -1)               # (1, batch_size)
+
+        # Append output to samples
+        samples = torch.cat((samples, token_out), dim=0)
+
+        # Make input to next time step
+        x_t = self.embedding(token_out)   # (1, batch_size, emb_size)
+
     return samples
+
+
 
 
 
@@ -437,8 +569,9 @@ class MultiHeadedAttention(nn.Module):
             torch.nn.init.uniform_(self.K_list[i].bias.data, a=-k, b=k)
             torch.nn.init.uniform_(self.V_list[i].weight.data, a=-k, b=k)
             torch.nn.init.uniform_(self.V_list[i].bias.data, a=-k, b=k)
+            
 
-
+        
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
         # query, key, and value correspond to Q, K, and V in the latex, and 
@@ -455,14 +588,34 @@ class MultiHeadedAttention(nn.Module):
             new_key = self.K_list[i](key)
             new_value = self.V_list[i](value)
 
+            
             attention = torch.bmm(new_query, new_key.transpose(1, 2))/np.sqrt(self.d_k)
+
+            #flat_query = new_query.view(new_query.shape[0] * new_query.shape[1], new_query.shape[2])
+            #flat_key = new_key.view(new_key.shape[0] * new_key.shape[1], new_key.shape[2])
+            #attention = torch.bmm(flat_query.unsqueeze(2), flat_key.unsqueeze(1)) 
+            #transpose(1, 2)
+            #attention /= self.sq_d_k
+            #attention = attention.view(new_query.shape[0], new_query.shape[1], new_query.shape[2], new_query.shape[2])
+            
+            
+
             attention = attention*mask - 1e9*(1 - mask)
 
             attention = torch.softmax(attention, dim=-1)
             attention = self.dropout(attention)
 
+            #new_attention = attention.view(attention.shape[0] * attention.shape[1], attention.shape[2], attention.shape[3])
+            #new_value2 = new_value.view(new_value.shape[0] * new_value.shape[1], new_value.shape[2]).unsqueeze(2)
             h_i = torch.bmm(attention, new_value)
-            h_list.append(h_i)
+            #import ipdb
+            #ipdb.set_trace()
+            
+            #h_i = torch.bmm(new_attention, new_value2).squeeze(2).view(new_query.shape[0], new_query.shape[1], -1)
+            h_list.append(h_i)#
+
+
+
 
         h = torch.cat(h_list, dim=2)
         final_attention = self.output_layer(h)
@@ -491,7 +644,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, n_units, dropout, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-
+        
         # Compute the positional encodings once in log space.
         pe = torch.zeros(max_len, n_units)
         position = torch.arange(0, max_len).unsqueeze(1).float()
@@ -501,9 +654,9 @@ class PositionalEncoding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
-
+        
     def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)],
+        x = x + Variable(self.pe[:, :x.size(1)], 
                          requires_grad=False)
         return self.dropout(x)
 
@@ -520,7 +673,7 @@ class TransformerBlock(nn.Module):
         self.self_attn = self_attn
         self.feed_forward = feed_forward
         self.sublayer = clones(ResidualSkipConnectionWithLayerNorm(size, dropout), 2)
-
+ 
     def forward(self, x, mask):
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask)) # apply the self-attention
         return self.sublayer[1](x, self.feed_forward) # apply the position-wise MLP
@@ -534,7 +687,7 @@ class TransformerStack(nn.Module):
         super(TransformerStack, self).__init__()
         self.layers = clones(layer, n_blocks)
         self.norm = LayerNorm(layer.size)
-
+        
     def forward(self, x, mask):
         for layer in self.layers:
             x = layer(x, mask)
@@ -547,13 +700,13 @@ class FullTransformer(nn.Module):
         self.transformer_stack = transformer_stack
         self.embedding = embedding
         self.output_layer = nn.Linear(n_units, vocab_size)
-
+        
     def forward(self, input_sequence, mask):
         embeddings = self.embedding(input_sequence)
         return F.log_softmax(self.output_layer(self.transformer_stack(embeddings, mask)), dim=-1)
 
 
-def make_model(vocab_size, n_blocks=6,
+def make_model(vocab_size, n_blocks=6, 
                n_units=512, n_heads=16, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
@@ -566,7 +719,7 @@ def make_model(vocab_size, n_blocks=6,
         n_units=n_units,
         vocab_size=vocab_size
         )
-
+    
     # Initialize parameters with Glorot / fan_avg.
     for p in model.parameters():
         if p.dim() > 1:
@@ -588,7 +741,7 @@ class Batch:
     def __init__(self, x, pad=0):
         self.data = x
         self.mask = self.make_mask(self.data, pad)
-
+    
     @staticmethod
     def make_mask(data, pad):
         "Create a mask to hide future words."
